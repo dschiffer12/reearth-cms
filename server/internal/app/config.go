@@ -54,9 +54,9 @@ type Config struct {
 }
 
 type AuthConfig struct {
-	ISS      string
-	AUD      []string
-	ALG      *string
+	ISS      string `default:"dev-ygb0v2204tv1h402.us.auth0.com"`
+	AUD      []string `default:"https://geo-forge.com/api"`
+	ALG      *string `default:"RS256"`
 	TTL      *int
 	ClientID *string
 	JWKSURI  *string
