@@ -1,11 +1,19 @@
 {
   "possibleTypes": {
-    "ItemEditor": [
-      "Integration",
-      "User"
+    "Condition": [
+      "AndCondition",
+      "BasicFieldCondition",
+      "BoolFieldCondition",
+      "MultipleFieldCondition",
+      "NullableFieldCondition",
+      "NumberFieldCondition",
+      "OrCondition",
+      "StringFieldCondition",
+      "TimeFieldCondition"
     ],
     "Node": [
       "Asset",
+      "Group",
       "Integration",
       "Item",
       "Model",
@@ -13,6 +21,7 @@
       "Request",
       "Schema",
       "User",
+      "View",
       "Workspace"
     ],
     "Operator": [
@@ -24,6 +33,7 @@
       "SchemaFieldBool",
       "SchemaFieldCheckbox",
       "SchemaFieldDate",
+      "SchemaFieldGroup",
       "SchemaFieldInteger",
       "SchemaFieldMarkdown",
       "SchemaFieldReference",

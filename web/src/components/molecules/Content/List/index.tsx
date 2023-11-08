@@ -1,4 +1,5 @@
 import styled from "@emotion/styled";
+import { Dispatch, SetStateAction } from "react";
 
 import Button from "@reearth-cms/components/atoms/Button";
 import Icon from "@reearth-cms/components/atoms/Icon";
@@ -10,14 +11,18 @@ import ContentTable from "@reearth-cms/components/molecules/Content/Table";
 import { ContentTableField, Item } from "@reearth-cms/components/molecules/Content/types";
 import { Request } from "@reearth-cms/components/molecules/Request/types";
 import { Model } from "@reearth-cms/components/molecules/Schema/types";
-import {
-  ItemSortType,
+import { CurrentViewType } from "@reearth-cms/components/organisms/Project/Content/ContentList/hooks";
+import type {
   SortDirection,
-} from "@reearth-cms/components/organisms/Project/Content/ContentList/hooks";
+  FieldSelector,
+  ConditionInput,
+  ItemSortInput,
+} from "@reearth-cms/gql/graphql-client-api";
 import { useT } from "@reearth-cms/i18n";
 
 export type Props = {
   commentsPanel?: JSX.Element;
+  viewsMenu: JSX.Element;
   collapsed?: boolean;
   model?: Model;
   contentTableFields?: ContentTableField[];
@@ -29,7 +34,8 @@ export type Props = {
     selectedRowKeys: string[];
   };
   totalCount: number;
-  sort?: { type?: ItemSortType; direction?: SortDirection };
+  currentView: CurrentViewType;
+  filter?: ConditionInput[];
   searchTerm: string;
   page: number;
   pageSize: number;
@@ -37,12 +43,14 @@ export type Props = {
   requestModalTotalCount: number;
   requestModalPage: number;
   requestModalPageSize: number;
+  setCurrentView: Dispatch<SetStateAction<CurrentViewType>>;
   onRequestTableChange: (page: number, pageSize: number) => void;
   onSearchTerm: (term?: string) => void;
+  onTableControl: (sort?: ItemSortInput, filter?: ConditionInput[]) => void;
   onContentTableChange: (
     page: number,
     pageSize: number,
-    sorter?: { type?: ItemSortType; direction?: SortDirection },
+    sorter?: { field?: FieldSelector; direction?: SortDirection },
   ) => void;
   onUnpublish: (itemIds: string[]) => Promise<void>;
   onItemSelect: (itemId: string) => void;
@@ -61,6 +69,7 @@ export type Props = {
 
 const ContentListMolecule: React.FC<Props> = ({
   commentsPanel,
+  viewsMenu,
   collapsed,
   model,
   contentTableFields,
@@ -70,12 +79,13 @@ const ContentListMolecule: React.FC<Props> = ({
   selectedItem,
   selection,
   totalCount,
-  sort,
+  currentView,
   searchTerm,
   page,
   pageSize,
   requests,
   addItemToRequestModalShown,
+  setCurrentView,
   onRequestTableChange,
   requestModalLoading,
   requestModalTotalCount,
@@ -86,6 +96,7 @@ const ContentListMolecule: React.FC<Props> = ({
   onAddItemToRequestModalClose,
   onAddItemToRequestModalOpen,
   onSearchTerm,
+  onTableControl,
   onContentTableChange,
   setSelection,
   onItemSelect,
@@ -111,7 +122,7 @@ const ContentListMolecule: React.FC<Props> = ({
       }
       center={
         <Content>
-          <PageHeader
+          <StyledPageHeder
             title={model?.name}
             subTitle={model?.key ? `#${model.key}` : null}
             extra={
@@ -124,9 +135,10 @@ const ContentListMolecule: React.FC<Props> = ({
               </Button>
             }
           />
+          {viewsMenu}
           <ContentTable
             totalCount={totalCount}
-            sort={sort}
+            currentView={currentView}
             searchTerm={searchTerm}
             page={page}
             pageSize={pageSize}
@@ -134,6 +146,7 @@ const ContentListMolecule: React.FC<Props> = ({
             selectedItem={selectedItem}
             selection={selection}
             onUnpublish={onUnpublish}
+            onTableControl={onTableControl}
             onSearchTerm={onSearchTerm}
             onContentTableChange={onContentTableChange}
             setSelection={setSelection}
@@ -153,6 +166,7 @@ const ContentListMolecule: React.FC<Props> = ({
             requestModalTotalCount={requestModalTotalCount}
             requestModalPage={requestModalPage}
             requestModalPageSize={requestModalPageSize}
+            setCurrentView={setCurrentView}
           />
         </Content>
       }
@@ -164,6 +178,10 @@ const ContentListMolecule: React.FC<Props> = ({
 const Content = styled.div`
   width: 100%;
   background-color: #fff;
+`;
+
+const StyledPageHeder = styled(PageHeader)`
+  padding: 16px 24px 0px 24px !important;
 `;
 
 export default ContentListMolecule;
