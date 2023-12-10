@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 
 import Notification from "@reearth-cms/components/atoms/Notification";
-import { ProColumns } from "@reearth-cms/components/atoms/ProTable";
+import { ExtendedColumns } from "@reearth-cms/components/molecules/Content/Table/types";
 import { ContentTableField, ItemStatus } from "@reearth-cms/components/molecules/Content/types";
 import { Request } from "@reearth-cms/components/molecules/Request/types";
+import {
+  AndConditionInput,
+  Column,
+  FieldType,
+  ItemSort,
+  SortDirection,
+} from "@reearth-cms/components/molecules/View/types";
 import {
   convertItem,
   convertComment,
@@ -14,23 +21,29 @@ import {
   Item as GQLItem,
   useDeleteItemMutation,
   Comment as GQLComment,
-  SortDirection,
-  FieldSelector,
   useSearchItemQuery,
   Asset as GQLAsset,
   useGetItemsByIdsQuery,
-  ConditionInput,
-  ItemSortInput,
-  AndConditionInput,
+  useUpdateItemMutation,
 } from "@reearth-cms/gql/graphql-client-api";
 import { useT } from "@reearth-cms/i18n";
+import { toGraphAndConditionInput, toGraphItemSort } from "@reearth-cms/utils/values";
 
+import { renderField } from "./renderFields";
 import { fileName } from "./utils";
 
 export type CurrentViewType = {
-  sort?: ItemSortInput;
+  id?: string;
+  sort?: ItemSort;
   filter?: AndConditionInput;
-  columns?: FieldSelector[];
+  columns?: Column[];
+};
+
+const defaultViewSort = {
+  direction: "DESC" as SortDirection,
+  field: {
+    type: "MODIFICATION_DATE" as FieldType,
+  },
 };
 
 export default () => {
@@ -51,42 +64,15 @@ export default () => {
     pageSize: requestModalPageSize,
   } = useContentHooks();
   const t = useT();
-  const [searchParams, setSearchParams] = useSearchParams();
-
-  const pageParam = useMemo(() => searchParams.get("page"), [searchParams]);
-  const pageSizeParam = useMemo(() => searchParams.get("pageSize"), [searchParams]);
-  const sortFieldType = useMemo(() => searchParams.get("sortFieldType"), [searchParams]);
-  const direction = useMemo(() => searchParams.get("direction"), [searchParams]);
-  const searchTermParam = useMemo(() => searchParams.get("searchTerm"), [searchParams]);
-  const sortFieldId = useMemo(() => searchParams.get("sortFieldId"), [searchParams]);
 
   const navigate = useNavigate();
   const { modelId } = useParams();
-  const [searchTerm, setSearchTerm] = useState<string>(searchTermParam ?? "");
-  const [page, setPage] = useState<number>(pageParam ? +pageParam : 1);
-  const [pageSize, setPageSize] = useState<number>(pageSizeParam ? +pageSizeParam : 10);
+  const [searchTerm, setSearchTerm] = useState<string>("");
+  const [page, setPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(10);
   const [currentView, setCurrentView] = useState<CurrentViewType>({
     columns: [],
   });
-
-  useEffect(() => {
-    setPage(pageParam ? +pageParam : 1);
-    setPageSize(pageSizeParam ? +pageSizeParam : 10);
-    let sort: ItemSortInput | undefined;
-    if (sortFieldType)
-      sort = {
-        field: {
-          id: sortFieldId,
-          type: sortFieldType as FieldSelector["type"],
-        },
-        direction: direction ? (direction as SortDirection) : ("DESC" as SortDirection),
-      };
-    setCurrentView(prev => ({
-      ...prev,
-      sort: sort,
-    }));
-    setSearchTerm(searchTermParam ?? "");
-  }, [sortFieldType, sortFieldId, direction, searchTermParam, pageSizeParam, pageParam]);
 
   const { data, refetch, loading } = useSearchItemQuery({
     fetchPolicy: "no-cache",
@@ -99,10 +85,13 @@ export default () => {
           q: searchTerm,
         },
         pagination: { first: pageSize, offset: (page - 1) * pageSize },
-        sort: currentView.sort,
+        //if there is no sort in the current view, show data in the default view sort
+        sort: currentView.sort
+          ? toGraphItemSort(currentView.sort)
+          : toGraphItemSort(defaultViewSort),
         filter: currentView.filter
           ? {
-              and: currentView.filter,
+              and: toGraphAndConditionInput(currentView.filter),
             }
           : undefined,
       },
@@ -151,6 +140,53 @@ export default () => {
     }
   });
 
+  const [updateItemMutation] = useUpdateItemMutation({
+    refetchQueries: ["SearchItem", "GetViews"],
+  });
+
+  const handleMetaItemUpdate = useCallback(
+    async (
+      updateItemId: string,
+      version: string,
+      key: string,
+      value?: string | string[] | boolean,
+      index?: number,
+    ) => {
+      const target = data?.searchItem.nodes.find(item => item?.id === updateItemId);
+      if (!target?.metadata?.id || !target?.metadata?.fields) {
+        Notification.error({ message: t("Failed to update item.") });
+        return;
+      }
+      const fields = target.metadata.fields.map(field => {
+        if (field.schemaFieldId === key) {
+          if (Array.isArray(field.value) && field.type !== "Tag") {
+            field.value[index ?? 0] = value ?? "";
+          } else {
+            field.value = value ?? "";
+          }
+        } else {
+          field.value = field.value ?? "";
+        }
+        return field as typeof field & { value: any };
+      });
+
+      const item = await updateItemMutation({
+        variables: {
+          itemId: target.metadata?.id,
+          fields,
+          version,
+        },
+      });
+      if (item.errors || !item.data?.updateItem) {
+        Notification.error({ message: t("Failed to update item.") });
+        return;
+      }
+
+      Notification.success({ message: t("Successfully updated Item!") });
+    },
+    [data?.searchItem.nodes, t, updateItemMutation],
+  );
+
   const contentTableFields: ContentTableField[] | undefined = useMemo(() => {
     return data?.searchItem.nodes
       ?.map(item =>
@@ -182,10 +218,12 @@ export default () => {
                         : field.type === "Reference"
                         ? referencedItemsMap.get(field.value)?.title ?? ""
                         : Array.isArray(field.value)
-                        ? field.value.join(", ")
-                        : field.value
-                        ? "" + field.value
-                        : field.value,
+                        ? field.value.length > 0
+                          ? field.value.map(v => "" + v)
+                          : null
+                        : field.value === null
+                        ? null
+                        : "" + field.value,
                   }),
                 {},
               ),
@@ -196,20 +234,24 @@ export default () => {
                 (obj, field) =>
                   Object.assign(obj, {
                     [field.schemaFieldId]: Array.isArray(field.value)
-                      ? field.value.join(", ")
-                      : field.value
-                      ? "" + field.value
-                      : field.value,
+                      ? field.value.length > 0
+                        ? field.value.map(v => "" + v)
+                        : null
+                      : field.value === null
+                      ? null
+                      : "" + field.value,
                   }),
                 {},
               ),
+              metadataId: item.metadata?.id,
+              version: item.metadata?.version,
             }
           : undefined,
       )
       .filter((contentTableField): contentTableField is ContentTableField => !!contentTableField);
   }, [data?.searchItem.nodes, referencedItemsMap]);
 
-  const contentTableColumns: ProColumns<ContentTableField>[] | undefined = useMemo(() => {
+  const contentTableColumns: ExtendedColumns[] | undefined = useMemo(() => {
     if (!currentModel) return;
     const fieldsColumns = currentModel?.schema?.fields?.map(field => ({
       title: field.title,
@@ -223,6 +265,14 @@ export default () => {
       minWidth: 128,
       multiple: field.multiple,
       required: field.required,
+      sorter: true,
+      sortOrder:
+        currentView.sort?.field.id === field.id
+          ? currentView.sort?.direction === "ASC"
+            ? ("ascend" as const)
+            : ("descend" as const)
+          : null,
+      render: (el: any) => renderField(el, field),
     }));
 
     const metadataColumns =
@@ -238,10 +288,22 @@ export default () => {
         minWidth: 128,
         multiple: field.multiple,
         required: field.required,
+        sorter: true,
+        sortOrder:
+          currentView.sort?.field.id === field.id
+            ? currentView.sort?.direction === "ASC"
+              ? ("ascend" as const)
+              : ("descend" as const)
+            : null,
+        render: (el: any, record: ContentTableField) => {
+          return renderField(el, field, (value?: string | string[] | boolean, index?: number) => {
+            handleMetaItemUpdate(record.id, record.version, field.id, value, index);
+          });
+        },
       })) || [];
 
-    return fieldsColumns.concat(metadataColumns);
-  }, [currentModel]);
+    return [...fieldsColumns, ...metadataColumns];
+  }, [currentModel, currentView.sort?.direction, currentView.sort?.field.id, handleMetaItemUpdate]);
 
   useEffect(() => {
     if (!modelId && currentModel?.id) {
@@ -256,9 +318,16 @@ export default () => {
       navigate(
         `/workspace/${currentWorkspace?.id}/project/${currentProject?.id}/content/${modelId}`,
       );
+      setSearchTerm("");
+      setPage(1);
     },
     [currentWorkspace?.id, currentProject?.id, navigate],
   );
+
+  const handleViewChange = useCallback(() => {
+    setSearchTerm("");
+    setPage(1);
+  }, []);
 
   const handleNavigateToItemForm = useCallback(() => {
     navigate(
@@ -313,49 +382,29 @@ export default () => {
   );
 
   const handleContentTableChange = useCallback(
-    (
-      page: number,
-      pageSize: number,
-      sorter?: { field?: FieldSelector; direction?: SortDirection },
-    ) => {
-      searchParams.set("page", page.toString());
-      searchParams.set("pageSize", pageSize.toString());
-      searchParams.set("sortFieldType", sorter?.field?.type ? sorter?.field?.type : "");
-      searchParams.set("direction", sorter?.direction ? sorter.direction : "");
-      searchParams.set("sortFieldId", sorter?.field?.id ? sorter?.field?.id : "");
-      setSearchParams(searchParams);
-    },
-    [searchParams, setSearchParams],
-  );
-
-  const handleSearchTerm = useCallback(
-    (term?: string) => {
-      searchParams.set("searchTerm", term ?? "");
-      setSearchParams(searchParams);
-    },
-    [setSearchParams, searchParams],
-  );
-
-  const handleTableControl = useCallback(
-    (sort: ItemSortInput | undefined, filter: ConditionInput[] | undefined) => {
-      setCurrentView(prev => {
-        let filterValue = prev.filter;
-        if (filter) {
-          if (filter.length > 0) {
-            filterValue = { conditions: filter };
-          } else {
-            filterValue = undefined;
-          }
-        }
-        return {
-          columns: prev.columns,
-          sort: sort ?? prev.sort,
-          filter: filterValue,
-        };
-      });
+    (page: number, pageSize: number, sorter?: ItemSort) => {
+      setPage(page);
+      setPageSize(pageSize);
+      setCurrentView(prev => ({
+        ...prev,
+        sort: sorter,
+      }));
     },
     [],
   );
+
+  const handleSearchTerm = useCallback((term?: string) => {
+    setSearchTerm(term ?? "");
+    setPage(1);
+  }, []);
+
+  const handleFilterChange = useCallback((filter?: AndConditionInput) => {
+    setCurrentView(prev => ({
+      ...prev,
+      filter,
+    }));
+    setPage(1);
+  }, []);
 
   const handleBulkAddItemToRequest = useCallback(
     async (request: Request, itemIds: string[]) => {
@@ -393,12 +442,13 @@ export default () => {
     handleAddItemToRequestModalClose,
     handleAddItemToRequestModalOpen,
     handleSearchTerm,
-    handleTableControl,
+    handleFilterChange,
     setSelection,
     handleItemSelect,
     collapseCommentsPanel,
     collapseModelMenu,
     handleModelSelect,
+    handleViewChange,
     handleNavigateToItemForm,
     handleNavigateToItemEditForm,
     handleItemsReload,
