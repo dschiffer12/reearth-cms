@@ -31,11 +31,16 @@ var (
 		"modelid",
 		"project",
 		"schema",
-		"fields.schemafield",
+		"fields.f",
+		"fields.v.t",
+		"fields.v.v",
 		"project,schema,!timestamp,!id,__r",
+		"project,__r,modelid,schema,__",
 		"modelid,id,__r",
+		"modelid,!_id,__r",
 		// "__r,assets,project,__", // cannot index parallel arrays
 		"__r,project,__",
+		"__r,asset,project,__",
 		"schema,id,__r,project",
 	}
 )
@@ -256,6 +261,9 @@ func lookupStages() []any {
 							"__r": bson.M{"$in": bson.A{"latest"}},
 						},
 					},
+					{
+						"$limit": 1,
+					},
 				},
 			},
 		},
@@ -271,10 +279,15 @@ func aliasStages(query *item.Query, sp schema.Package) []any {
 		aliases["__temp."+field.ID.String()] = bson.M{
 			"$map": bson.M{
 				"input": bson.M{
-					"$filter": bson.M{
-						"input": "$fields",
-						"as":    "field",
-						"cond":  bson.M{"$eq": bson.A{"$$field.f", field.ID.String()}},
+					"$slice": bson.A{
+						bson.M{
+							"$filter": bson.M{
+								"input": "$fields",
+								"as":    "field",
+								"cond":  bson.M{"$eq": bson.A{"$$field.f", field.ID.String()}},
+							},
+						},
+						1,
 					},
 				},
 				"as": "field",
@@ -286,10 +299,15 @@ func aliasStages(query *item.Query, sp schema.Package) []any {
 		aliases["__temp."+field.ID.String()] = bson.M{
 			"$map": bson.M{
 				"input": bson.M{
-					"$filter": bson.M{
-						"input": "$__temp.meta.fields",
-						"as":    "field",
-						"cond":  bson.M{"$eq": bson.A{"$$field.f", field.ID.String()}},
+					"$slice": bson.A{
+						bson.M{
+							"$filter": bson.M{
+								"input": "$__temp.meta.fields",
+								"as":    "field",
+								"cond":  bson.M{"$eq": bson.A{"$$field.f", field.ID.String()}},
+							},
+						},
+						1,
 					},
 				},
 				"as": "field",
